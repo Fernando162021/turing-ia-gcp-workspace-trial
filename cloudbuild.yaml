@@ -1,0 +1,18 @@
+steps:
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - functions
+      - deploy
+      - process-bucket-upload
+      - --gen2
+      - --runtime=nodejs20
+      - --region=us-central1
+      - --source=.
+      - --entry-point=processFile
+      - --trigger-location=us-central1
+      - --trigger-event-filters=type=google.cloud.storage.object.v1.finalized
+      - --trigger-event-filters=bucket=turing-ia-bucket-test
+      - --quiet
+
+timeout: '600s'
