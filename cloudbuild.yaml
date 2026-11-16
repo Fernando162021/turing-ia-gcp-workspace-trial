@@ -15,4 +15,7 @@ steps:
       - --trigger-event-filters=bucket=turing-ia-bucket-test
       - --quiet
 
+options:
+  logging: CLOUD_LOGGING_ONLY
+
 timeout: '600s'
