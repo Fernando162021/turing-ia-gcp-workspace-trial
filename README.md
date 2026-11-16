@@ -30,7 +30,7 @@ Repository for the technical challenges of the GCP | Workspace trial period at T
 
 ### Screenshots
 
-Cloud Function log after uploading a file ![alt text](success.png)
+Cloud Function log after uploading a file ![Success](screenshots/success.png)
 
 ### Architecture
 
