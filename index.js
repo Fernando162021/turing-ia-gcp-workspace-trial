@@ -1,6 +1,6 @@
 const functions = require('@google-cloud/functions-framework');
 
-functions.cloudEvent('processFile', (cloudEvent) => {
+function handleFileUpload(cloudEvent) {
   try {
     const file = cloudEvent.data;
     const { name, bucket, size, contentType, timeCreated } = file;
@@ -14,7 +14,6 @@ functions.cloudEvent('processFile', (cloudEvent) => {
       contentType,
       timeCreated,
     }));
-
   } catch (error) {
     console.error(JSON.stringify({
       severity: 'ERROR',
@@ -24,4 +23,8 @@ functions.cloudEvent('processFile', (cloudEvent) => {
     }));
     throw error;
   }
-});
+}
+
+functions.cloudEvent('processFile', handleFileUpload);
+
+module.exports = { handleFileUpload };
