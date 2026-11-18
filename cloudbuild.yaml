@@ -13,6 +13,7 @@ steps:
       - --trigger-location=us-central1
       - --trigger-event-filters=type=google.cloud.storage.object.v1.finalized
       - --trigger-event-filters=bucket=turing-ia-bucket-test
+      - --set-secrets=WEBHOOK_SECRET=webhook-shared-secret:latest,WEBHOOK_URL=webhook-url:latest
       - --quiet
 
 options:
