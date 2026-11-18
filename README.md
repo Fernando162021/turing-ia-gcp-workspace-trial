@@ -30,7 +30,7 @@ Repository for the technical challenges of the GCP | Workspace trial period at T
 
 ### Screenshots
 
-Cloud Function log after uploading a file ![Success](screenshots/success.png)
+Cloud Function log after uploading a file ![Success](screenshots/day1-success.png)
 
 ### Architecture
 
@@ -87,14 +87,91 @@ npm test        # runs unit tests (Node's built-in test runner)
 | Eventarc API disabled | Not enabled by default on a new project | Enabled via Console |
 | `storage.buckets.get` denied when creating the trigger | Cloud Storage's service agent lacked permission to publish events to Pub/Sub | Granted `roles/pubsub.publisher` to `service-<PROJECT_NUMBER>@gs-project-accounts.iam.gserviceaccount.com` |
 
+## Day 2 - Google Workspace Automation
+
+Simulated a Workspace environment using Google Groups (no domain or paid trial required — the challenge explicitly allows "a test environment or demo accounts"), and built an automation script in Google Apps Script bound to a Google Sheet (`Turing IA - Automation Tracker`).
+
+### What was built
+
+- **Google Group** (`turing-ia-gcp-workspace-team@googlegroups.com`) with restricted-access policies and a two-level role hierarchy (Owner / Manager).
+- **Apps Script project** (`turing-ia-automation-tracker`) with three functions:
+  - `processSheetData()` — reads rows, classifies each as `HIGH PRIORITY` / `NORMAL` based on amount.
+  - `sendNotifications()` — emails the owner for each unnotified high-priority row.
+  - `createFollowUpEvents()` — schedules a Google Calendar follow-up for each notified row.
+- **Triggers**: `onEdit` (immediate) for `processSheetData`, hourly time-driven triggers for the other two.
+
+### Issues found and resolved
+
+| Problem | Cause | Fix |
+| --- | --- | --- |
+| Duplicate Calendar events on repeated runs | `createFollowUpEvents` had no way to know a row was already scheduled | Added a `Scheduled` boolean column, checked before creating an event |
+
+Full write-up, screenshots and code comments: see `apps-script/Code.gs` and the Day 2 technical report (delivered separately as a PDF/Word document).
+
+## Day 3 - Full Integration, Security & Deployment
+
+Connected the Day 1 Cloud Function to the Day 2 Apps Script project through a signed webhook, so uploading a file to the bucket automatically logs it in a Sheet and sends a notification — with authentication and data validation at every step.
+
+### Architecture
+
+```
+Cloud Storage bucket (turing-ia-bucket-test)
+        │  object finalized event
+        ▼
+Eventarc trigger
+        │
+        ▼
+Cloud Function (process-bucket-upload)
+        │  1. validates metadata
+        │  2. signs payload (HMAC-SHA256)
+        ▼
+HTTPS POST  ──────────────────────────────►  Apps Script Web App (doPost)
+                                                   │  1. validates signature
+                                                   │  2. appends row to "GCS File Events" sheet
+                                                   │  3. sends Gmail notification
+                                                   ▼
+                                     Google Sheet + Gmail inbox
+```
+
+### Security measures
+
+- **Webhook authentication**: HMAC-SHA256 signature over the payload, computed with a shared secret. Chosen over OAuth/ID tokens because Apps Script has no native way to validate Google-signed JWTs, while both sides already have simple HMAC primitives (`crypto` in Node, `Utilities.computeHmacSha256Signature` in Apps Script). See the Day 3 report for the full comparison against OAuth, API keys and mTLS.
+- **Secret management**: both the HMAC secret and the webhook URL are stored in **Secret Manager**, injected into the Cloud Function at deploy time via `--set-secrets` (never committed to the repository or visible in Cloud Build logs).
+- **Least privilege**: the function's runtime service account was granted `Secret Manager Secret Accessor` only on the two specific secrets it needs — not at the project level.
+- **Data validation at every stage**: the Cloud Function validates file metadata before sending anything (`src/validation.js`); the webhook independently validates required fields and the signature before writing to the Sheet.
+
+### Issues found and resolved
+
+| Problem | Cause | Fix |
+| --- | --- | --- |
+| Deploy failed: "Permission denied on secret" | The function's actual runtime service account (Compute Engine default) differed from the one shown in the Cloud Run console (App Engine default) | Granted `Secret Manager Secret Accessor` to the correct service account, identified from the deploy error message |
+| Webhook returned `"Failed to send email: no recipient"` | `Session.getActiveUser().getEmail()` returns empty when the Web App is invoked by an anonymous external caller (even though it runs with the owner's authority) | Stored the recipient as a fixed Script Property (`NOTIFICATION_EMAIL`) instead |
+| One notification out of a batch wasn't marked `Notified = true`, despite the email being sent | Race condition: concurrent `doPost` executions (triggered by near-simultaneous file uploads) interleaved `appendRow()` + `getLastRow()`, so one execution read another's row index | Wrapped the critical section in `LockService.getScriptLock()`, serializing concurrent executions |
+
+### Manual end-to-end test (multi-file)
+
+1. Upload 2-3 files to `turing-ia-bucket-test` at the same time.
+2. Check **Cloud Functions → process-bucket-upload → Logs** — one `"File received in bucket"` and one `"Webhook call finished"` (HTTP 200) per file.
+3. Check the `GCS File Events` sheet tab — one new row per file, all with `Notified = TRUE`.
+4. Check Gmail — one notification email per file.
+
+Full write-up, screenshots, response-time data and lessons learned: see the Day 3 technical report (delivered separately as a PDF/Word document).
+
 ## Repository structure
 
 ```
 .
-├── index.js          # Cloud Function source
-├── package.json
-├── cloudbuild.yaml    # CI/CD pipeline (Cloud Build)
+├── apps-script/
+│   ├── Code.gs           # Day 2: Workspace automation logic (reference copy)
+│   └── Webhook.gs        # Day 3: webhook receiver (reference copy)
+├── screenshots/
+├── src/
+│   ├── validation.js    # Metadata validation
+│   └── webhook.js       # HMAC signing + webhook call
 ├── test/
-│   └── index.test.js  # Unit tests
+│   └── index.test.js     # Unit tests
+├── cloudbuild.yaml       # CI/CD pipeline (Cloud Build)
+├── index.js             # Cloud Function entry point (orchestration only)
+├── package.json
 └── README.md
 ```
